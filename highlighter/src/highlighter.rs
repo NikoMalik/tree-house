@@ -119,7 +119,7 @@ impl HighlightQuery {
 ///
 /// This type is represented as a non-max u32 - a u32 which cannot be `u32::MAX`. This is checked
 /// at runtime with assertions in `Highlight::new`.
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Highlight(NonZeroU32);
 
 impl Highlight {
