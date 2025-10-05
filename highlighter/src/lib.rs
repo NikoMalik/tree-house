@@ -81,7 +81,7 @@ impl Language {
 /// separate injections. That is done while parsing/running the query capture. As
 /// a result the injections form a tree. Note that such other queries must account for
 /// such multi injection nodes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Syntax {
     layers: Slab<LayerData>,
     root: Layer,
@@ -212,7 +212,7 @@ pub struct Injection {
     matched_node_range: Range,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LayerData {
     pub language: Language,
     parse_tree: Option<Tree>,
