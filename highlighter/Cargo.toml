@@ -8,7 +8,7 @@ authors = [
 version = "0.3.0"
 edition = "2021"
 license = "MPL-2.0"
-repository = "https://github.com/helix-editor/tree-house"
+repository = "https://github.com/NikoMalik/tree-house"
 readme = "../README.md"
 rust-version = "1.82.0"
 
