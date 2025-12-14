@@ -380,7 +380,7 @@ impl fmt::Display for Error {
 /// Neovim chose 64 for this value somewhat arbitrarily (<https://github.com/neovim/neovim/pull/18397>).
 /// 64 is too low for some languages though. In particular, it breaks some highlighting for record fields in Erlang record definitions.
 /// This number can be increased if new syntax highlight breakages are found, as long as the performance penalty is not too high.
-pub const TREE_SITTER_MATCH_LIMIT: u32 = 256;
+pub const TREE_SITTER_MATCH_LIMIT: u32 = 64;
 
 // use 32 bit ranges since TS doesn't support files larger than 2GiB anyway
 // and it allows us to save a lot memory/improve cache efficiency
