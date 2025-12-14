@@ -100,7 +100,7 @@ impl Syntax {
 
 #[inline(always)]
 fn merge_ranges(ranges: &mut Vec<TreeSitterRange>) {
-    if ranges.len() <= 1 {
+    if ranges.is_empty() || ranges.len() == 1 {
         return;
     }
     ranges.sort_unstable_by_key(|range| (range.start_byte, range.end_byte));
