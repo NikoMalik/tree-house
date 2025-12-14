@@ -2,7 +2,7 @@ use std::mem::take;
 use std::time::Duration;
 
 use ropey::RopeSlice;
-use tree_sitter::Parser;
+use tree_sitter::{Parser, Point, Range as TreeSitterRange};
 
 use crate::config::LanguageLoader;
 use crate::{Error, LayerData, Syntax};
@@ -21,7 +21,6 @@ impl Syntax {
         if source.len_bytes() >= 512 * 1024 * 1024 {
             return Err(Error::ExceededMaximumSize);
         }
-
         let mut queue = Vec::with_capacity(32);
         let root_flags = &mut self.layer_mut(self.root).flags;
         // The root layer is always considered.
@@ -34,44 +33,123 @@ impl Syntax {
         parser.set_timeout(timeout);
 
         while let Some(layer) = queue.pop() {
-            let layer_data = self.layer_mut(layer);
-            if layer_data.ranges.is_empty() {
-                // Skip re-parsing and querying layers without any ranges.
-                continue;
-            }
-            if let Some(tree) = &mut layer_data.parse_tree {
-                if layer_data.flags.moved || layer_data.flags.modified {
-                    for edit in edits.iter().rev() {
-                        // Apply the edits in reverse.
-                        // If we applied them in order then edit 1 would disrupt the positioning
-                        // of edit 2.
-                        tree.edit(edit);
-                    }
+            let _old_tree = self.layer(layer).parse_tree.clone();
+            {
+                let layer_data = self.layer(layer);
+                if layer_data.ranges.is_empty() {
+                    // Skip re-parsing and querying layers without any ranges.
+                    continue;
                 }
-                if layer_data.flags.modified {
-                    // Re-parse the tree.
+            }
+            {
+                let layer_data = self.layer_mut(layer);
+                if let Some(tree) = &mut layer_data.parse_tree {
+                    if layer_data.flags.moved || layer_data.flags.modified {
+                        for edit in edits.iter().rev() {
+                            // Apply the edits in reverse.
+                            // If we applied them in order then edit 1 would disrupt the positioning
+                            // of edit 2.
+                            tree.edit(edit);
+                        }
+                    }
+                    if layer_data.flags.modified {
+                        // Re-parse the tree.
+                        layer_data.parse(&mut parser, source, loader)?;
+                    }
+                } else {
+                    // always parse if this layer has never been parsed before
                     layer_data.parse(&mut parser, source, loader)?;
                 }
-            } else {
-                // always parse if this layer has never been parsed before
-                layer_data.parse(&mut parser, source, loader)?;
             }
-            self.run_injection_query(layer, edits, source, loader, |layer| queue.push(layer));
+
+            let query_ranges = {
+                let layer_data = self.layer(layer);
+                match layer_data.parse_tree.as_ref() {
+                    Some(new_tree) if !edits.is_empty() => {
+                        let mut ranges: Vec<TreeSitterRange> =
+                            edits.iter().map(edit_to_range).collect();
+                        merge_ranges(&mut ranges);
+                        if ranges.is_empty() {
+                            ranges.push(root_range(new_tree));
+                        }
+                        ranges
+                    }
+                    Some(new_tree) => vec![root_range(new_tree)],
+                    None => Vec::new(),
+                }
+            };
+
+            self.run_injection_query(layer, edits, &query_ranges, source, loader, |layer| {
+                queue.push(layer)
+            });
             self.run_local_query(layer, source, loader);
         }
 
         if self.layer(self.root).parse_tree.is_none() {
             return Err(Error::NoRootConfig);
         }
-
         self.prune_dead_layers();
         Ok(())
     }
-
     /// Reset all `LayerUpdateFlags` and remove all untouched layers
     fn prune_dead_layers(&mut self) {
         self.layers
             .retain(|_, layer| take(&mut layer.flags).touched);
+    }
+}
+
+#[inline(always)]
+fn merge_ranges(ranges: &mut Vec<TreeSitterRange>) {
+    if ranges.len() <= 1 {
+        return;
+    }
+    ranges.sort_unstable_by_key(|range| (range.start_byte, range.end_byte));
+    let mut merged: Vec<TreeSitterRange> = Vec::with_capacity(ranges.len());
+    for range in ranges.drain(..) {
+        if let Some(last) = merged.last_mut() {
+            if last.end_byte >= range.start_byte {
+                if range.end_byte > last.end_byte {
+                    last.end_byte = range.end_byte;
+                    last.end_point = max_point(last.end_point, range.end_point);
+                }
+                continue;
+            }
+        }
+        merged.push(range);
+    }
+
+    ranges.extend(merged);
+}
+
+#[inline(always)]
+fn max_point(a: Point, b: Point) -> Point {
+    if a.row > b.row || (a.row == b.row && a.col >= b.col) {
+        a
+    } else {
+        b
+    }
+}
+
+#[inline(always)]
+fn edit_to_range(edit: &tree_sitter::InputEdit) -> TreeSitterRange {
+    let end_byte = edit.new_end_byte.max(edit.old_end_byte);
+    let end_point = max_point(edit.new_end_point, edit.old_end_point);
+    TreeSitterRange {
+        start_byte: edit.start_byte,
+        end_byte,
+        start_point: edit.start_point,
+        end_point,
+    }
+}
+
+#[inline(always)]
+fn root_range(tree: &tree_sitter::Tree) -> TreeSitterRange {
+    let root = tree.root_node();
+    TreeSitterRange {
+        start_byte: root.start_byte(),
+        end_byte: root.end_byte(),
+        start_point: Point::ZERO,
+        end_point: Point::MAX,
     }
 }
 

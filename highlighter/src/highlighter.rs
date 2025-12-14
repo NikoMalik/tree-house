@@ -126,7 +126,7 @@ impl Highlight {
     pub const MAX: u32 = u32::MAX - 1;
 
     pub const fn new(inner: u32) -> Self {
-        assert!(inner != u32::MAX);
+        debug_assert!(inner != u32::MAX);
         // SAFETY: must be non-zero because `inner` is not `u32::MAX`.
         Self(unsafe { NonZeroU32::new_unchecked(inner ^ u32::MAX) })
     }
@@ -214,7 +214,7 @@ impl ExactSizeIterator for HighlightList<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HighlightEvent {
     /// Reset the active set of highlights to the given ones.
     Refresh,
@@ -243,6 +243,35 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         };
         res.advance_query_iter();
         res
+    }
+
+    pub fn collect_highlights(mut self) -> Vec<(Highlight, std::ops::Range<u32>)> {
+        let mut seen_highlights: HashMap<(Highlight, u32), u32> = HashMap::new();
+
+        let mut last_pos = 0u32;
+
+        loop {
+            let next_offset = self.next_event_offset();
+
+            if next_offset == u32::MAX {
+                break;
+            }
+
+            if next_offset > last_pos {
+                last_pos = next_offset;
+            }
+
+            let (_event, _highlights) = self.advance();
+
+            for &HighlightedNode { end, highlight } in &self.active_highlights {
+                seen_highlights.entry((highlight, end)).or_insert(last_pos);
+            }
+        }
+
+        seen_highlights
+            .into_iter()
+            .map(|((highlight, end), start)| (highlight, start..end))
+            .collect()
     }
 
     pub fn active_highlights(&self) -> HighlightList<'_> {
