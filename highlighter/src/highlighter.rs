@@ -3,7 +3,6 @@ use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::cmp;
 use std::fmt;
-use std::mem::replace;
 use std::num::NonZeroU32;
 use std::ops::RangeBounds;
 use std::slice;
@@ -12,7 +11,7 @@ use std::sync::Arc;
 use crate::config::{LanguageConfig, LanguageLoader};
 use crate::locals::ScopeCursor;
 use crate::query_iter::{MatchedNode, QueryIter, QueryIterEvent, QueryLoader};
-use crate::{Injection, Language, Layer, Syntax};
+use crate::{Language, Syntax};
 use arc_swap::ArcSwap;
 use hashbrown::{HashMap, HashSet};
 use ropey::RopeSlice;
@@ -191,8 +190,8 @@ pub struct Highlighter<'a, 'tree, Loader: LanguageLoader> {
     // query iter. The query iter is always one event ahead, so it will enter/exit injections
     // before we get a chance to in the highlighter. So instead we track these on the highlighter.
     // Also see `Self::advance_query_iter`.
-    current_layer: Layer,
-    layer_states: SmallMap<Layer, LayerData>,
+    // current_layer: Layer,
+    // layer_states: SmallMap<Layer, LayerData>,
 }
 
 pub struct HighlightList<'a>(slice::Iter<'a, HighlightedNode>);
@@ -241,8 +240,8 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         let mut res = Highlighter {
             active_config: query.loader().0.get_config(active_language),
             next_query_event: None,
-            current_layer: query.current_layer(),
-            layer_states: SmallMap::new(),
+            // current_layer: query.current_layer(),
+            // layer_states: SmallMap::new(),
             active_highlights: smallvec![],
             next_highlight_end: u32::MAX,
             next_highlight_start: 0,
@@ -253,44 +252,15 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
     }
 
     #[inline]
-    pub fn collect_highlights(mut self) -> Vec<(Highlight, std::ops::Range<u32>)> {
-        let mut seen_highlights: HashMap<(Highlight, u32), u32> =
-            HashMap::with_capacity(self.active_highlights.len() * 2);
-
-        let mut last_pos = 0u32;
-
-        loop {
-            let next_offset = self.next_event_offset();
-
-            if next_offset == u32::MAX {
-                break;
-            }
-
-            if next_offset > last_pos {
-                last_pos = next_offset;
-            }
-
-            let (_event, _highlights) = self.advance();
-
-            for &HighlightedNode { end, highlight } in &self.active_highlights {
-                seen_highlights.entry((highlight, end)).or_insert(last_pos);
-            }
-        }
-
-        seen_highlights
-            .into_iter()
-            .map(|((highlight, end), start)| (highlight, start..end))
-            .collect()
-    }
-    #[inline]
     pub fn active_highlights(&self) -> HighlightList<'_> {
         HighlightList(self.active_highlights.iter())
     }
+
     #[inline]
     pub fn next_event_offset(&self) -> u32 {
         self.next_highlight_start.min(self.next_highlight_end)
     }
-    #[inline]
+    #[inline(always)]
     pub fn advance(&mut self) -> (HighlightEvent, HighlightList<'_>) {
         let mut refresh = false;
         let prev_stack_size = self.active_highlights.len();
@@ -302,44 +272,47 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         }
 
         let mut first_highlight = true;
-        let mut depth = 0;
+        // let mut depth = 0;
         while self.next_highlight_start == pos {
             let Some(query_event) = self.advance_query_iter() else {
                 break;
             };
-            match query_event {
-                QueryIterEvent::EnterInjection(injection) => {
-                    depth += 1;
-                    if depth > MAX_INJECTION_DEPTH {
-                        // Skip deep injections
-                        continue;
-                    }
-                    self.enter_injection(injection.layer)
-                }
-                QueryIterEvent::Match(node) => self.start_highlight(node, &mut first_highlight),
-                QueryIterEvent::ExitInjection { injection, state } => {
-                    depth -= 1;
-                    // `state` is returned if the layer is finished according to the `QueryIter`.
-                    // The highlighter should only consider a layer finished, though, when it also
-                    // has no remaining ranges to highlight. If the injection is combined and has
-                    // highlight(s) past this injection's range then we should deactivate it
-                    // (saving the highlights for the layer's next injection range) rather than
-                    // removing it.
-                    let layer_is_finished = state.is_some()
-                        && self
-                            .current_layer_highlights()
-                            .iter()
-                            .all(|h| h.end <= injection.range.end);
-                    if layer_is_finished {
-                        self.layer_states.remove(&injection.layer);
-                    } else {
-                        self.deactivate_layer(injection);
-                        refresh = true;
-                    }
-                    let active_language = self.query.syntax().layer(self.current_layer).language;
-                    self.active_config = self.query.loader().0.get_config(active_language);
-                }
+            if let QueryIterEvent::Match(node) = query_event {
+                self.start_highlight(node, &mut first_highlight)
             }
+            // match query_event {
+            //     QueryIterEvent::EnterInjection(injection) => {
+            //         depth += 1;
+            //         if depth > MAX_INJECTION_DEPTH {
+            //             // Skip deep injections
+            //             continue;
+            //         }
+            //         self.enter_injection(injection.layer)
+            //     }
+            //     QueryIterEvent::Match(node) => self.start_highlight(node, &mut first_highlight),
+            //     QueryIterEvent::ExitInjection { injection, state } => {
+            //         depth -= 1;
+            //         // `state` is returned if the layer is finished according to the `QueryIter`.
+            //         // The highlighter should only consider a layer finished, though, when it also
+            //         // has no remaining ranges to highlight. If the injection is combined and has
+            //         // highlight(s) past this injection's range then we should deactivate it
+            //         // (saving the highlights for the layer's next injection range) rather than
+            //         // removing it.
+            //         let layer_is_finished = state.is_some()
+            //             && self
+            //                 .current_layer_highlights()
+            //                 .iter()
+            //                 .all(|h| h.end <= injection.range.end);
+            //         if layer_is_finished {
+            //             self.layer_states.remove(&injection.layer);
+            //         } else {
+            //             self.deactivate_layer(injection);
+            //             refresh = true;
+            //         }
+            //         let active_language = self.query.syntax().layer(self.current_layer).language;
+            //         self.active_config = self.query.loader().0.get_config(active_language);
+            //     }
+            // }
         }
         self.next_highlight_end = self
             .active_highlights
@@ -358,20 +331,17 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             )
         }
     }
-    #[inline]
+
+    #[inline(always)]
     fn advance_query_iter(&mut self) -> Option<QueryIterEvent<'tree, ()>> {
-        // Track the current layer **before** calling `QueryIter::next`. The QueryIter moves
-        // to the next event with `QueryIter::next` but we're treating that event as peeked - it
-        // hasn't occurred yet - so the current layer is the one the query iter was on _before_
-        // `QueryIter::next`.
-        self.current_layer = self.query.current_layer();
-        let event = replace(&mut self.next_query_event, self.query.next());
+        let event = std::mem::replace(&mut self.next_query_event, self.query.next());
         self.next_highlight_start = self
             .next_query_event
             .as_ref()
-            .map_or(u32::MAX, |event| event.start_byte());
+            .map_or(u32::MAX, |e| e.start_byte());
         event
     }
+
     #[inline]
     fn process_highlight_end(&mut self, pos: u32) {
         let i = self
@@ -381,113 +351,37 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             .map_or(0, |i| i + 1);
         self.active_highlights.truncate(i);
     }
-    #[inline]
-    fn current_layer_highlights(&self) -> &[HighlightedNode] {
-        let parent_start = self
-            .layer_states
-            .get(&self.current_layer)
-            .map(|layer| layer.parent_highlights)
-            .unwrap_or_default()
-            .min(self.active_highlights.len());
-        &self.active_highlights[parent_start..]
-    }
-    #[inline]
-    fn enter_injection(&mut self, layer: Layer) {
-        debug_assert_eq!(layer, self.current_layer);
-        let active_language = self.query.syntax().layer(layer).language;
-        self.active_config = self.query.loader().0.get_config(active_language);
 
-        let state = if let Some(state) = self.layer_states.get_mut(&layer) {
-            state
-        } else {
-            self.layer_states.insert(layer, LayerData::default());
-            self.layer_states.get_mut(&layer).unwrap()
-        };
-        state.parent_highlights = self.active_highlights.len();
-        self.active_highlights.append(&mut state.dormant_highlights);
-    }
-    #[inline]
-    fn deactivate_layer(&mut self, injection: Injection) {
-        let LayerData {
-            mut parent_highlights,
-            ref mut dormant_highlights,
-            ..
-        } = self.layer_states.get_mut(&injection.layer).unwrap();
-        parent_highlights = parent_highlights.min(self.active_highlights.len());
-        dormant_highlights.extend(self.active_highlights.drain(parent_highlights..));
-        self.process_highlight_end(injection.range.end);
-    }
-    #[inline]
+    #[inline(always)]
     fn start_highlight(&mut self, node: MatchedNode, first_highlight: &mut bool) {
         let range = node.node.byte_range();
-        // `<QueryIter as Iterator>::next` skips matches with empty ranges.
-        debug_assert!(
-            !range.is_empty(),
-            "QueryIter should not emit matches with empty ranges"
-        );
+        debug_assert!(!range.is_empty());
 
         let config = match self.active_config {
             Some(c) => c,
             None => return,
         };
 
-        let highlight = if Some(node.capture) == config.highlight_query.local_reference_capture {
-            // If this capture was a `@local.reference` from the locals queries, look up the
-            // text of the node in the current locals cursor and use that highlight.
-            let text: Cow<str> = self
-                .query
-                .source()
-                .byte_slice(range.start as usize..range.end as usize)
-                .into();
-            let Some(definition) = self
-                .query
-                .syntax()
-                .layer(self.current_layer)
-                .locals
-                .lookup_reference(node.scope, &text)
-                .filter(|def| range.start >= def.range.end)
-            else {
-                return;
-            };
-            config
-                .injection_query
-                .local_definition_captures
-                .load()
-                .get(&definition.capture)
-                .copied()
-        } else {
-            config.highlight_query.highlight_indices.load()[node.capture.idx()]
+        let highlight = config.highlight_query.highlight_indices.load()[node.capture.idx()];
+
+        let Some(h) = highlight else {
+            return;
         };
 
-        let highlight_node = match highlight {
-            Some(h) => HighlightedNode {
-                end: range.end,
-                highlight: h,
-            },
-            None => return,
+        let highlight_node = HighlightedNode {
+            end: range.end,
+            highlight: h,
         };
 
-        // If multiple patterns match this exact node, prefer the last one which matched.
-        // This matches the precedence of Neovim, Zed, and tree-sitter-cli.
         if !*first_highlight {
-            // NOTE: `!*first_highlight` implies that the start positions are the same.
             let insert_position = self
                 .active_highlights
                 .iter()
                 .rposition(|h| h.end <= range.end);
             if let Some(idx) = insert_position {
                 match self.active_highlights[idx].end.cmp(&range.end) {
-                    // If there is a prior highlight for this start..end range, replace it.
-                    cmp::Ordering::Equal => {
-                        self.active_highlights[idx] = highlight_node;
-                    }
-                    // Captures are emitted in the order that they are finished. Insert any
-                    // highlights which start at the same position into the active highlights so
-                    // that the ordering invariant remains satisfied.
-                    cmp::Ordering::Less => {
-                        self.active_highlights.insert(idx + 1, highlight_node);
-                    }
-                    // By definition of our `rposition` predicate:
+                    cmp::Ordering::Equal => self.active_highlights[idx] = highlight_node,
+                    cmp::Ordering::Less => self.active_highlights.insert(idx + 1, highlight_node),
                     cmp::Ordering::Greater => unreachable!(),
                 }
             } else {
@@ -497,21 +391,6 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             self.active_highlights.push(highlight_node);
             *first_highlight = false;
         }
-
-        // `active_highlights` must be a stack of highlight events the highlights stack on the
-        // prior highlights in the Vec. Each highlight's range must be a subset of the highlight's
-        // range before it.
-        debug_assert!(
-            // The assertion is actually true for the entire stack but combined injections
-            // throw a wrench in things: the highlight can end after the current injection.
-            // The highlight is removed from `active_highlights` as the injection layer ends
-            // so the wider assertion would be true in practice. We don't track the injection
-            // end right here though so we can't assert on it.
-            self.current_layer_highlights().is_sorted_by_key(|h| cmp::Reverse(h.end)),
-            "unsorted highlights on layer {:?}: {:?}\nall active highlights must be sorted by `end` descending",
-            self.current_layer,
-            self.active_highlights,
-        );
     }
 }
 
