@@ -66,26 +66,6 @@ impl Syntax {
                 }
             }
 
-            let query_ranges = {
-                let layer_data = self.layer(layer);
-                match layer_data.parse_tree.as_ref() {
-                    Some(new_tree) if !edits.is_empty() => {
-                        let mut ranges: Vec<TreeSitterRange> =
-                            edits.iter().map(edit_to_range).collect();
-                        merge_ranges(&mut ranges);
-                        if ranges.is_empty() {
-                            ranges.push(root_range(new_tree));
-                        }
-                        ranges
-                    }
-                    Some(new_tree) => vec![root_range(new_tree)],
-                    None => Vec::new(),
-                }
-            };
-
-            self.run_injection_query(layer, edits, &query_ranges, source, loader, |layer| {
-                queue.push(layer)
-            });
             self.run_local_query(layer, source, loader);
         }
 
