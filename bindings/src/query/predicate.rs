@@ -45,6 +45,7 @@ pub(crate) struct TextPredicate {
 #[inline(always)]
 fn input_matches_str<I: Input>(str: &str, range: Range<u32>, input: &mut I) -> bool {
     let start = range.start as usize;
+    let end = range.end as usize;
     if str.len() != range.len() {
         return false;
     }
@@ -52,24 +53,45 @@ fn input_matches_str<I: Input>(str: &str, range: Range<u32>, input: &mut I) -> b
     let cursor = input.cursor_at(range.start);
     let mut remaining = str.as_bytes();
 
-    loop {
-        let chunk = cursor.chunk();
-        let start_in_chunk = start.saturating_sub(cursor.offset());
-        let cmp_len = remaining.len().min(chunk.len() - start_in_chunk);
+    let start_in_chunk = start - cursor.offset();
 
-        if &chunk[start_in_chunk..start_in_chunk + cmp_len] != &remaining[..cmp_len] {
+    if end - cursor.offset() <= cursor.chunk().len() {
+        unsafe {
+            let chunk = cursor.chunk();
+            return chunk.get_unchecked(start_in_chunk..end - cursor.offset()) == remaining;
+        }
+    }
+
+    unsafe {
+        let chunk = cursor.chunk();
+        let chunk_len = chunk.len();
+        if chunk.get_unchecked(start_in_chunk..chunk_len)
+            != &remaining[..chunk_len - start_in_chunk]
+        {
             return false;
+        }
+        remaining = &remaining[chunk_len - start_in_chunk..];
+    }
+
+    while cursor.advance() {
+        let chunk = cursor.chunk();
+        let cmp_len = remaining.len().min(chunk.len());
+
+        unsafe {
+            if chunk.get_unchecked(0..cmp_len) != &remaining[..cmp_len] {
+                return false;
+            }
         }
 
         remaining = &remaining[cmp_len..];
         if remaining.is_empty() {
             return true;
         }
-        if !cursor.advance() {
-            return false;
-        }
     }
+
+    false
 }
+
 impl TextPredicate {
     /// handlers match_all and negated
     fn satisfied_helper(&self, mut nodes: impl Iterator<Item = bool>) -> bool {
