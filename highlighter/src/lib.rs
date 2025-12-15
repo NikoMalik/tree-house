@@ -1,3 +1,4 @@
+// #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use locals::Locals;
 use ropey::RopeSlice;
 

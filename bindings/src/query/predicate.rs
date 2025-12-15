@@ -42,35 +42,34 @@ pub(crate) struct TextPredicate {
     match_all: bool,
 }
 
+#[inline(always)]
 fn input_matches_str<I: Input>(str: &str, range: Range<u32>, input: &mut I) -> bool {
+    let start = range.start as usize;
     if str.len() != range.len() {
         return false;
     }
-    let mut str = str.as_bytes();
+
     let cursor = input.cursor_at(range.start);
-    let range = range.start as usize..range.end as usize;
-    let start_in_chunk = range.start - cursor.offset();
-    if range.end - cursor.offset() <= cursor.chunk().len() {
-        // hotpath
-        return &cursor.chunk()[start_in_chunk..range.end - cursor.offset()] == str;
-    }
-    if cursor.chunk()[start_in_chunk..] != str[..cursor.chunk().len() - start_in_chunk] {
-        return false;
-    }
-    str = &str[..cursor.chunk().len() - start_in_chunk];
-    while cursor.advance() {
-        if str.len() <= cursor.chunk().len() {
-            return &cursor.chunk()[..range.end - cursor.offset()] == str;
-        }
-        if &str[..cursor.chunk().len()] != cursor.chunk() {
+    let mut remaining = str.as_bytes();
+
+    loop {
+        let chunk = cursor.chunk();
+        let start_in_chunk = start.saturating_sub(cursor.offset());
+        let cmp_len = remaining.len().min(chunk.len() - start_in_chunk);
+
+        if &chunk[start_in_chunk..start_in_chunk + cmp_len] != &remaining[..cmp_len] {
             return false;
         }
-        str = &str[cursor.chunk().len()..]
-    }
-    // buggy cursor/invalid range
-    false
-}
 
+        remaining = &remaining[cmp_len..];
+        if remaining.is_empty() {
+            return true;
+        }
+        if !cursor.advance() {
+            return false;
+        }
+    }
+}
 impl TextPredicate {
     /// handlers match_all and negated
     fn satisfied_helper(&self, mut nodes: impl Iterator<Item = bool>) -> bool {
@@ -143,9 +142,11 @@ impl Query {
         let predicate_steps = unsafe {
             let mut len = 0u32;
             let raw_predicates = ts_query_predicates_for_pattern(self.raw, pattern.0, &mut len);
-            (len != 0)
-                .then(|| slice::from_raw_parts(raw_predicates, len as usize))
-                .unwrap_or_default()
+            if len != 0 {
+                slice::from_raw_parts(raw_predicates, len as usize)
+            } else {
+                Default::default()
+            }
         };
         let predicates = predicate_steps
             .split(|step| step.kind == PredicateStepKind::Done)

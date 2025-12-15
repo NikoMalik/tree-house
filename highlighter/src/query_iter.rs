@@ -227,19 +227,16 @@ where
             .language
     }
 
-    pub fn layer_state(&mut self, layer: Layer) -> &mut LayerState {
+    pub fn layer_state(&mut self, layer: Layer) -> Option<&mut LayerState> {
         if layer == self.current_injection.layer {
-            &mut self.current_layer.state
+            Some(&mut self.current_layer.state)
         } else {
-            &mut self
-                .layer_manager
-                .active_layers
-                .get_mut(&layer)
-                .unwrap()
-                .state
+            match self.layer_manager.active_layers.get_mut(&layer) {
+                Some(l) => Some(&mut l.state),
+                None => None,
+            }
         }
     }
-
     fn enter_injection(&mut self, injection: Injection) {
         let active_layer = self.layer_manager.init_layer(injection.clone());
         let old_injection = replace(&mut self.current_injection, injection);
