@@ -93,14 +93,19 @@ impl Parser {
         }
         // resize scratch buffer (no realloc if capacity ok)
         self.ts_ranges_buf.clear();
-        let mut prev_end = Point { row: 0, col: 0 };
+        let mut prev_end_byte = 0u32;
+        let mut prev_end_point = Point { row: 0, col: 0 };
         for &r in ranges {
-            // validate ordering / overlap
-            if r.start_byte >= r.end_byte || r.start_point >= prev_end {
+            // validate ordering / overlap / empty
+            if r.start_byte >= r.end_byte
+                || r.start_byte < prev_end_byte
+                || r.start_point < prev_end_point
+            {
                 return Err(InvalidRangesError);
             }
             self.ts_ranges_buf.push(r);
-            prev_end = r.end_point;
+            prev_end_byte = r.end_byte;
+            prev_end_point = r.end_point;
         }
         let ok = unsafe {
             ts_parser_set_included_ranges(
