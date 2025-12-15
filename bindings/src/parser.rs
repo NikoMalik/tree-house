@@ -20,12 +20,6 @@ thread_local! {
     static PARSER_CACHE: Cell<Option<RawParser>> = const { Cell::new(None) };
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct ByteRange {
-    pub start: u32,
-    pub end: u32,
-}
-
 struct RawParser {
     ptr: NonNull<ParserData>,
 }

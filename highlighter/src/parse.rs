@@ -1,4 +1,6 @@
+use hashbrown::HashMap;
 use smallvec::SmallVec;
+use std::cell::RefCell;
 use std::mem::take;
 use std::time::Duration;
 
@@ -6,7 +8,7 @@ use ropey::RopeSlice;
 use tree_sitter::{Parser, Point, Range as TreeSitterRange};
 
 use crate::config::LanguageLoader;
-use crate::{Error, Layer, LayerData, Syntax};
+use crate::{Error, Language, Layer, LayerData, Syntax};
 
 impl Syntax {
     pub fn update(
@@ -102,25 +104,34 @@ impl Syntax {
 
 #[inline(always)]
 fn merge_ranges(ranges: &mut Vec<TreeSitterRange>) {
-    if ranges.is_empty() || ranges.len() == 1 {
+    let len = ranges.len();
+    if len <= 1 {
         return;
     }
-    ranges.sort_unstable_by_key(|range| (range.start_byte, range.end_byte));
-    let mut merged: Vec<TreeSitterRange> = Vec::with_capacity(ranges.len());
-    for range in ranges.drain(..) {
-        if let Some(last) = merged.last_mut() {
-            if last.end_byte >= range.start_byte {
-                if range.end_byte > last.end_byte {
-                    last.end_byte = range.end_byte;
-                    last.end_point = max_point(last.end_point, range.end_point);
-                }
-                continue;
-            }
-        }
-        merged.push(range);
-    }
 
-    ranges.extend(merged);
+    ranges.sort_unstable_by_key(|r| (r.start_byte, r.end_byte));
+
+    let mut write = 0;
+
+    for i in 1..len {
+        let (cur_start, cur_end, cur_point) = {
+            let r = &ranges[i];
+            (r.start_byte, r.end_byte, r.end_point)
+        };
+
+        let last = &mut ranges[write];
+
+        if last.end_byte >= cur_start {
+            if cur_end > last.end_byte {
+                last.end_byte = cur_end;
+                last.end_point = max_point(last.end_point, cur_point);
+            }
+        } else {
+            write += 1;
+            ranges[write] = ranges[i];
+        }
+    }
+    ranges.truncate(write + 1);
 }
 
 #[inline(always)]
