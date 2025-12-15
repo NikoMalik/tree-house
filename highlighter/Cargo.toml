@@ -19,7 +19,7 @@ fixtures = ["dep:unicode-width", "dep:pretty_assertions"]
 [dependencies]
 ropey = { version = "1.6", default-features = false, features = ["simd"] }
 arc-swap = "1"
-hashbrown = { version = "0.15" }
+hashbrown = { version = "0.16",feuatures=["allocator-api2"] }
 regex = "1"
 regex-cursor = "0.1"
 slab = "0.4"

@@ -1,3 +1,4 @@
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::cmp;
 use std::fmt;
@@ -19,6 +20,8 @@ use tree_sitter::{
     Capture, Grammar,
 };
 use tree_sitter::{Pattern, QueryMatch};
+
+pub const MAX_INJECTION_DEPTH: usize = 8;
 
 /// Contains the data needed to highlight code written in a particular language.
 ///
@@ -155,7 +158,8 @@ struct HighlightedNode {
 #[derive(Debug, Default)]
 pub struct LayerData {
     parent_highlights: usize,
-    dormant_highlights: Vec<HighlightedNode>,
+    // dormant_highlights: Vec<HighlightedNode>,
+    dormant_highlights: SmallVec<[HighlightedNode; 8]>,
 }
 
 pub struct Highlighter<'a, 'tree, Loader: LanguageLoader> {
@@ -175,7 +179,8 @@ pub struct Highlighter<'a, 'tree, Loader: LanguageLoader> {
     /// ```
     ///
     /// would be `vec![A, B, C]`.
-    active_highlights: Vec<HighlightedNode>,
+    // active_highlights: Vec<HighlightedNode>,
+    active_highlights: SmallVec<[HighlightedNode; 16]>,
     next_highlight_end: u32,
     next_highlight_start: u32,
     active_config: Option<&'a LanguageConfig>,
@@ -235,8 +240,8 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             active_config: query.loader().0.get_config(active_language),
             next_query_event: None,
             current_layer: query.current_layer(),
-            layer_states: Default::default(),
-            active_highlights: Vec::new(),
+            layer_states: HashMap::with_capacity(8),
+            active_highlights: smallvec![],
             next_highlight_end: u32::MAX,
             next_highlight_start: 0,
             query,
@@ -245,8 +250,10 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         res
     }
 
+    #[inline]
     pub fn collect_highlights(mut self) -> Vec<(Highlight, std::ops::Range<u32>)> {
-        let mut seen_highlights: HashMap<(Highlight, u32), u32> = HashMap::new();
+        let mut seen_highlights: HashMap<(Highlight, u32), u32> =
+            HashMap::with_capacity(self.active_highlights.len() * 2);
 
         let mut last_pos = 0u32;
 
@@ -273,15 +280,15 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             .map(|((highlight, end), start)| (highlight, start..end))
             .collect()
     }
-
+    #[inline]
     pub fn active_highlights(&self) -> HighlightList<'_> {
         HighlightList(self.active_highlights.iter())
     }
-
+    #[inline]
     pub fn next_event_offset(&self) -> u32 {
         self.next_highlight_start.min(self.next_highlight_end)
     }
-
+    #[inline]
     pub fn advance(&mut self) -> (HighlightEvent, HighlightList<'_>) {
         let mut refresh = false;
         let prev_stack_size = self.active_highlights.len();
@@ -293,14 +300,23 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         }
 
         let mut first_highlight = true;
+        let mut depth = 0;
         while self.next_highlight_start == pos {
             let Some(query_event) = self.advance_query_iter() else {
                 break;
             };
             match query_event {
-                QueryIterEvent::EnterInjection(injection) => self.enter_injection(injection.layer),
+                QueryIterEvent::EnterInjection(injection) => {
+                    depth += 1;
+                    if depth > MAX_INJECTION_DEPTH {
+                        // Skip deep injections
+                        continue;
+                    }
+                    self.enter_injection(injection.layer)
+                }
                 QueryIterEvent::Match(node) => self.start_highlight(node, &mut first_highlight),
                 QueryIterEvent::ExitInjection { injection, state } => {
+                    depth -= 1;
                     // `state` is returned if the layer is finished according to the `QueryIter`.
                     // The highlighter should only consider a layer finished, though, when it also
                     // has no remaining ranges to highlight. If the injection is combined and has
@@ -340,7 +356,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             )
         }
     }
-
+    #[inline]
     fn advance_query_iter(&mut self) -> Option<QueryIterEvent<'tree, ()>> {
         // Track the current layer **before** calling `QueryIter::next`. The QueryIter moves
         // to the next event with `QueryIter::next` but we're treating that event as peeked - it
@@ -354,7 +370,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             .map_or(u32::MAX, |event| event.start_byte());
         event
     }
-
+    #[inline]
     fn process_highlight_end(&mut self, pos: u32) {
         let i = self
             .active_highlights
@@ -363,7 +379,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             .map_or(0, |i| i + 1);
         self.active_highlights.truncate(i);
     }
-
+    #[inline]
     fn current_layer_highlights(&self) -> &[HighlightedNode] {
         let parent_start = self
             .layer_states
@@ -373,7 +389,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             .min(self.active_highlights.len());
         &self.active_highlights[parent_start..]
     }
-
+    #[inline]
     fn enter_injection(&mut self, layer: Layer) {
         debug_assert_eq!(layer, self.current_layer);
         let active_language = self.query.syntax().layer(layer).language;
@@ -383,7 +399,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         state.parent_highlights = self.active_highlights.len();
         self.active_highlights.append(&mut state.dormant_highlights);
     }
-
+    #[inline]
     fn deactivate_layer(&mut self, injection: Injection) {
         let LayerData {
             mut parent_highlights,
@@ -394,7 +410,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         dormant_highlights.extend(self.active_highlights.drain(parent_highlights..));
         self.process_highlight_end(injection.range.end);
     }
-
+    #[inline]
     fn start_highlight(&mut self, node: MatchedNode, first_highlight: &mut bool) {
         let range = node.node.byte_range();
         // `<QueryIter as Iterator>::next` skips matches with empty ranges.
@@ -403,9 +419,10 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             "QueryIter should not emit matches with empty ranges"
         );
 
-        let config = self
-            .active_config
-            .expect("must have an active config to emit matches");
+        let config = match self.active_config {
+            Some(c) => c,
+            None => return,
+        };
 
         let highlight = if Some(node.capture) == config.highlight_query.local_reference_capture {
             // If this capture was a `@local.reference` from the locals queries, look up the
@@ -435,10 +452,13 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             config.highlight_query.highlight_indices.load()[node.capture.idx()]
         };
 
-        let highlight = highlight.map(|highlight| HighlightedNode {
-            end: range.end,
-            highlight,
-        });
+        let highlight_node = match highlight {
+            Some(h) => HighlightedNode {
+                end: range.end,
+                highlight: h,
+            },
+            None => return,
+        };
 
         // If multiple patterns match this exact node, prefer the last one which matched.
         // This matches the precedence of Neovim, Zed, and tree-sitter-cli.
@@ -452,28 +472,22 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
                 match self.active_highlights[idx].end.cmp(&range.end) {
                     // If there is a prior highlight for this start..end range, replace it.
                     cmp::Ordering::Equal => {
-                        if let Some(highlight) = highlight {
-                            self.active_highlights[idx] = highlight;
-                        } else {
-                            self.active_highlights.remove(idx);
-                        }
+                        self.active_highlights[idx] = highlight_node;
                     }
                     // Captures are emitted in the order that they are finished. Insert any
                     // highlights which start at the same position into the active highlights so
                     // that the ordering invariant remains satisfied.
                     cmp::Ordering::Less => {
-                        if let Some(highlight) = highlight {
-                            self.active_highlights.insert(idx, highlight)
-                        }
+                        self.active_highlights.insert(idx + 1, highlight_node);
                     }
                     // By definition of our `rposition` predicate:
                     cmp::Ordering::Greater => unreachable!(),
                 }
             } else {
-                self.active_highlights.extend(highlight);
+                self.active_highlights.push(highlight_node);
             }
-        } else if let Some(highlight) = highlight {
-            self.active_highlights.push(highlight);
+        } else {
+            self.active_highlights.push(highlight_node);
             *first_highlight = false;
         }
 
@@ -502,7 +516,6 @@ impl<'a, T: LanguageLoader> QueryLoader<'a> for HighlightQueryLoader<&'a T> {
             .get_config(lang)
             .map(|config| &config.highlight_query.query)
     }
-
     fn are_predicates_satisfied(
         &self,
         lang: Language,
@@ -510,12 +523,10 @@ impl<'a, T: LanguageLoader> QueryLoader<'a> for HighlightQueryLoader<&'a T> {
         source: RopeSlice<'_>,
         locals_cursor: &ScopeCursor<'_>,
     ) -> bool {
-        let highlight_query = &self
-            .0
-            .get_config(lang)
-            .expect("must have a config to emit matches")
-            .highlight_query;
-
+        let highlight_query = match self.0.get_config(lang) {
+            Some(c) => &c.highlight_query,
+            None => return false, // Early exit
+        };
         // Highlight queries should reject the match when a pattern is marked with
         // `(#is-not? local)` and any capture in the pattern matches a definition in scope.
         //
@@ -537,11 +548,9 @@ impl<'a, T: LanguageLoader> QueryLoader<'a> for HighlightQueryLoader<&'a T> {
                     .lookup_reference(locals_cursor.current_scope(), &text)
                     .is_some_and(|def| range.start >= def.range.start)
             });
-            if has_local_reference {
-                return false;
-            }
+            !has_local_reference
+        } else {
+            true
         }
-
-        true
     }
 }
