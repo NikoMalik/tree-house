@@ -17,7 +17,7 @@ default = ["fixtures"]
 fixtures = ["dep:unicode-width", "dep:pretty_assertions"]
 
 [dependencies]
-ropey = { version = "1.6", default-features = false }
+ropey = { version = "1.6", default-features = false, features = ["simd"] }
 arc-swap = "1"
 hashbrown = { version = "0.15" }
 regex = "1"
@@ -26,6 +26,8 @@ slab = "0.4"
 unicode-width = { version = "=0.1.12", optional = true }
 pretty_assertions = { version = "1.4.0", optional = true }
 kstring = "2.0"
+smallvec = "1.15.1"
+
 
 [dev-dependencies]
 indexmap = "2.5.0"

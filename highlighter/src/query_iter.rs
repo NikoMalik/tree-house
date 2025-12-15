@@ -1,4 +1,5 @@
 use core::slice;
+use smallvec::{smallvec, SmallVec};
 use std::iter::Peekable;
 use std::mem::replace;
 use std::ops::RangeBounds;
@@ -93,7 +94,7 @@ struct QueryIterLayerManager<'a, 'tree, Loader, S> {
     src: RopeSlice<'a>,
     syntax: &'tree Syntax,
     active_layers: HashMap<Layer, Box<ActiveLayer<'a, 'tree, S>>>,
-    active_injections: Vec<Injection>,
+    active_injections: SmallVec<[Injection; 8]>,
     /// Layers which are known to have no more captures.
     finished_layers: HashSet<Layer>,
 }
@@ -180,7 +181,7 @@ where
             syntax,
             // TODO: reuse allocations with an allocation pool
             active_layers: HashMap::with_capacity(8),
-            active_injections: Vec::with_capacity(8),
+            active_injections: smallvec![],
             finished_layers: HashSet::with_capacity(8),
         });
         Self {
