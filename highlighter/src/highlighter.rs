@@ -1,3 +1,4 @@
+use small_map::FxSmallMap;
 use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::cmp;
@@ -21,7 +22,8 @@ use tree_sitter::{
 };
 use tree_sitter::{Pattern, QueryMatch};
 
-pub const MAX_INJECTION_DEPTH: usize = 8;
+pub const MAX_INJECTION_DEPTH: usize = 6;
+type SmallMap<K, V> = FxSmallMap<MAX_INJECTION_DEPTH, K, V>;
 
 /// Contains the data needed to highlight code written in a particular language.
 ///
@@ -190,7 +192,7 @@ pub struct Highlighter<'a, 'tree, Loader: LanguageLoader> {
     // before we get a chance to in the highlighter. So instead we track these on the highlighter.
     // Also see `Self::advance_query_iter`.
     current_layer: Layer,
-    layer_states: HashMap<Layer, LayerData>,
+    layer_states: SmallMap<Layer, LayerData>,
 }
 
 pub struct HighlightList<'a>(slice::Iter<'a, HighlightedNode>);
@@ -240,7 +242,7 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
             active_config: query.loader().0.get_config(active_language),
             next_query_event: None,
             current_layer: query.current_layer(),
-            layer_states: HashMap::with_capacity(8),
+            layer_states: SmallMap::new(),
             active_highlights: smallvec![],
             next_highlight_end: u32::MAX,
             next_highlight_start: 0,
@@ -395,7 +397,12 @@ impl<'a, 'tree: 'a, Loader: LanguageLoader> Highlighter<'a, 'tree, Loader> {
         let active_language = self.query.syntax().layer(layer).language;
         self.active_config = self.query.loader().0.get_config(active_language);
 
-        let state = self.layer_states.entry(layer).or_default();
+        let state = if let Some(state) = self.layer_states.get_mut(&layer) {
+            state
+        } else {
+            self.layer_states.insert(layer, LayerData::default());
+            self.layer_states.get_mut(&layer).unwrap()
+        };
         state.parent_highlights = self.active_highlights.len();
         self.active_highlights.append(&mut state.dormant_highlights);
     }

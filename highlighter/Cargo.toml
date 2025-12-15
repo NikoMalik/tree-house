@@ -17,6 +17,7 @@ default = ["fixtures"]
 fixtures = ["dep:unicode-width", "dep:pretty_assertions"]
 
 [dependencies]
+small-map = "0.1.4"
 ropey = { version = "1.6", default-features = false, features = ["simd"] }
 arc-swap = "1"
 hashbrown = { version = "0.16",feuatures=["allocator-api2"] }
