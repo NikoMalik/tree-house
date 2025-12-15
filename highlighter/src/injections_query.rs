@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cmp::Reverse;
 use std::iter::{self, Peekable};
 use std::mem::take;
@@ -22,6 +23,10 @@ use tree_sitter::{
 
 const SHEBANG: &str = r"#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?([^\s\.\d]+)";
 static SHEBANG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(SHEBANG).unwrap());
+
+thread_local! {
+    static CLEARED: Cell<bool> = const {Cell::new(false) };
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct InjectionProperties {
@@ -394,7 +399,10 @@ impl Syntax {
         // Skip injection processing if injections are disabled
         if !self.injections_enabled {
             // Clear any existing injections to prevent dangling references
-            self.layer_mut(layer).injections.clear();
+            if !CLEARED.get() {
+                self.layer_mut(layer).injections.clear();
+                CLEARED.set(true);
+            }
             return;
         }
 

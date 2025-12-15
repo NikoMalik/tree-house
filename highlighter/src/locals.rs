@@ -27,7 +27,7 @@ pub struct Locals {
 
 impl Default for Locals {
     fn default() -> Self {
-        let mut scopes = Vec::with_capacity(4);
+        let mut scopes = Vec::with_capacity(32);
         scopes.push(ScopeData {
             definitions: HashMap::new(),
             range: 0..u32::MAX,
@@ -41,6 +41,7 @@ impl Default for Locals {
 }
 
 impl Locals {
+    #[inline]
     fn push(&mut self, scope: ScopeData) -> Scope {
         let new_scope_id = Scope(self.scopes.len() as u32);
         let parent = scope
@@ -50,7 +51,7 @@ impl Locals {
         self.scopes.push(scope);
         new_scope_id
     }
-
+    #[inline]
     pub fn lookup_reference(&self, mut scope: Scope, name: &str) -> Option<&Definition> {
         loop {
             let scope_data = &self[scope];
@@ -65,7 +66,7 @@ impl Locals {
 
         None
     }
-
+    #[inline]
     pub fn scope_cursor(&self, pos: u32) -> ScopeCursor<'_> {
         let mut scope = Scope::ROOT;
         let mut scope_stack = Vec::with_capacity(8);
@@ -111,6 +112,7 @@ pub struct ScopeCursor<'a> {
 }
 
 impl ScopeCursor<'_> {
+    #[inline]
     pub fn advance(&mut self, to: u32) -> Scope {
         let (mut active_scope, mut child_idx) = self.scope_stack.pop().unwrap();
         loop {
@@ -142,7 +144,7 @@ impl ScopeCursor<'_> {
         self.scope_stack.push((active_scope, child_idx));
         active_scope
     }
-
+    #[inline]
     pub fn current_scope(&self) -> Scope {
         // The root scope is always active so `scope_stack` is never empty.
         self.scope_stack.last().unwrap().0
