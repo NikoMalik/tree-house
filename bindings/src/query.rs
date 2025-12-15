@@ -355,7 +355,7 @@ impl ParserErrorLocation {
     pub fn new(source: &str, start: usize, len: usize) -> ParserErrorLocation {
         let mut line = 0;
         let mut column = 0;
-        let mut line_content = String::new();
+        let mut line_content = String::with_capacity(len);
         let mut line_before = None;
         let mut line_after = None;
 
