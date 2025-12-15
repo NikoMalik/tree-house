@@ -1,3 +1,4 @@
+use smallvec::{smallvec, SmallVec};
 use std::cell::Cell;
 use std::os::raw::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -19,6 +20,12 @@ thread_local! {
     static PARSER_CACHE: Cell<Option<RawParser>> = const { Cell::new(None) };
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ByteRange {
+    pub start: u32,
+    pub end: u32,
+}
+
 struct RawParser {
     ptr: NonNull<ParserData>,
 }
@@ -33,6 +40,7 @@ impl Drop for RawParser {
 /// source code.
 pub struct Parser {
     ptr: NonNull<ParserData>,
+    ts_ranges_buf: SmallVec<[Range; 16]>,
 }
 
 impl Parser {
@@ -47,7 +55,10 @@ impl Parser {
             }
             None => unsafe { ts_parser_new() },
         };
-        Parser { ptr }
+        Parser {
+            ptr,
+            ts_ranges_buf: smallvec![],
+        }
     }
 
     /// Set the language that the parser should use for parsing.
@@ -75,18 +86,30 @@ impl Parser {
     ///
     /// `ranges` must be non-overlapping and sorted.
     pub fn set_included_ranges(&mut self, ranges: &[Range]) -> Result<(), InvalidRangesError> {
-        // TODO: save some memory by only storing byte ranges and converting them to TS ranges in an
-        // internal buffer here. Points are not used by TS. Alternatively we can patch the TS C code
-        // to accept a simple pair (struct with two fields) of byte positions here instead of a full
-        // tree sitter range
-        let success = unsafe {
-            ts_parser_set_included_ranges(self.ptr, ranges.as_ptr(), ranges.len() as u32)
-        };
-        if success {
-            Ok(())
-        } else {
-            Err(InvalidRangesError)
+        // fast-path: empty = whole document
+        if ranges.is_empty() {
+            let ok = unsafe { ts_parser_set_included_ranges(self.ptr, ptr::null(), 0) };
+            return ok.then_some(()).ok_or(InvalidRangesError);
         }
+        // resize scratch buffer (no realloc if capacity ok)
+        self.ts_ranges_buf.clear();
+        let mut prev_end = Point { row: 0, col: 0 };
+        for &r in ranges {
+            // validate ordering / overlap
+            if r.start_byte >= r.end_byte || r.start_point >= prev_end {
+                return Err(InvalidRangesError);
+            }
+            self.ts_ranges_buf.push(r);
+            prev_end = r.end_point;
+        }
+        let ok = unsafe {
+            ts_parser_set_included_ranges(
+                self.ptr,
+                self.ts_ranges_buf.as_ptr(),
+                self.ts_ranges_buf.len() as u32,
+            )
+        };
+        ok.then_some(()).ok_or(InvalidRangesError)
     }
 
     #[must_use]

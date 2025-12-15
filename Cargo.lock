@@ -618,6 +618,7 @@ dependencies = [
  "libloading",
  "regex-cursor",
  "ropey",
+ "smallvec",
  "thiserror",
  "tree-sitter-language",
 ]

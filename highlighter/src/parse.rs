@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::mem::take;
 use std::time::Duration;
 
@@ -5,7 +6,7 @@ use ropey::RopeSlice;
 use tree_sitter::{Parser, Point, Range as TreeSitterRange};
 
 use crate::config::LanguageLoader;
-use crate::{Error, LayerData, Syntax};
+use crate::{Error, Layer, LayerData, Syntax};
 
 impl Syntax {
     pub fn update(
@@ -21,7 +22,8 @@ impl Syntax {
         if source.len_bytes() >= 512 * 1024 * 1024 {
             return Err(Error::ExceededMaximumSize);
         }
-        let mut queue = Vec::with_capacity(32);
+        // let mut queue = Vec::with_capacity(32);
+        let mut queue: SmallVec<[Layer; 32]> = SmallVec::new();
         let root_flags = &mut self.layer_mut(self.root).flags;
         // The root layer is always considered.
         root_flags.touched = true;
