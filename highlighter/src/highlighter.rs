@@ -426,13 +426,18 @@ impl<'a, T: LanguageLoader> QueryLoader<'a> for HighlightQueryLoader<&'a T> {
         {
             let has_local_reference = mat.matched_nodes().any(|n| {
                 let range = n.node.byte_range();
-                let text: Cow<str> = source
-                    .byte_slice(range.start as usize..range.end as usize)
-                    .into();
-                locals_cursor
-                    .locals
-                    .lookup_reference(locals_cursor.current_scope(), &text)
-                    .is_some_and(|def| range.start >= def.range.start)
+                // let text: Cow<str> = source
+                //     .byte_slice(range.start as usize..range.end as usize)
+                //     .into();
+                let slice = source.byte_slice(range.start as usize..range.end as usize);
+                if let Some(s) = slice.as_str() {
+                    locals_cursor
+                        .locals
+                        .lookup_reference(locals_cursor.current_scope(), s)
+                        .is_some_and(|def| range.start >= def.range.start)
+                } else {
+                    false
+                }
             });
             !has_local_reference
         } else {
