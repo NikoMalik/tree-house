@@ -190,19 +190,22 @@ pub fn highlighter_fixture(
     let end = match range.end_bound() {
         Bound::Included(&i) => i - 1,
         Bound::Excluded(&i) => i,
-        Bound::Unbounded => src.len_bytes(),
+        Bound::Unbounded => src.len(),
     };
     let ident = " ".repeat(comment_prefix.width());
     let mut highlighter = Highlighter::new(syntax, src, &loader, start as u32..);
     let mut pos = highlighter.next_event_offset();
     let mut highlight_stack = Vec::new();
-    let mut line_idx = src.byte_to_line(pos as usize);
-    let mut line_start = src.line_to_byte(line_idx) as u32;
-    let mut line_end = src.line_to_byte(line_idx + 1) as u32;
+    let mut line_idx = src.byte_to_line_idx(pos as usize, ropey::LineType::LF_CR);
+    let mut line_start = src.line_to_byte_idx(line_idx, ropey::LineType::LF_CR) as u32;
+    let mut line_end = src.line_to_byte_idx(line_idx + 1, ropey::LineType::LF_CR) as u32;
     let mut line_highlights = Vec::new();
     let mut res = String::new();
-    for line in src.byte_slice(..line_start as usize).lines() {
-        if line.len_bytes() != 0 {
+    for line in src
+        .slice(..line_start as usize)
+        .lines(ropey::LineType::LF_CR)
+    {
+        if line.len() != 0 {
             wln!(res, "{ident}{line}")
         }
     }
@@ -215,22 +218,19 @@ pub fn highlighter_fixture(
         let start = pos;
         pos = highlighter.next_event_offset();
         if pos == u32::MAX {
-            pos = src.len_bytes() as u32
+            pos = src.len() as u32
         }
         if pos <= start {
             panic!(
                 "INVALID HIGHLIGHT RANGE: {start}..{pos} '{}' {:?}",
-                src.byte_slice(pos as usize..start as usize),
+                src.slice(pos as usize..start as usize),
                 highlight_stack
             );
         }
 
         while start >= line_end {
             res.push_str(&ident);
-            res.extend(
-                src.byte_slice(line_start as usize..line_end as usize)
-                    .chunks(),
-            );
+            res.extend(src.slice(line_start as usize..line_end as usize).chunks());
             annotate_line(
                 comment_prefix,
                 src,
@@ -242,9 +242,11 @@ pub fn highlighter_fixture(
             line_highlights.clear();
             line_idx += 1;
             line_start = line_end;
-            line_end = src
-                .try_line_to_byte(line_idx + 1)
-                .unwrap_or(src.len_bytes()) as u32;
+            line_end = if src.len_lines(ropey::LineType::LF_CR) > line_idx {
+                src.line_to_byte_idx(line_idx + 1, ropey::LineType::LF_CR) as u32
+            } else {
+                src.len() as u32
+            };
         }
         if !highlight_stack.is_empty() {
             let range = start..pos.min(line_end);
@@ -254,10 +256,7 @@ pub fn highlighter_fixture(
         }
         while pos > line_end {
             res.push_str(&ident);
-            res.extend(
-                src.byte_slice(line_start as usize..line_end as usize)
-                    .chunks(),
-            );
+            res.extend(src.slice(line_start as usize..line_end as usize).chunks());
             annotate_line(
                 comment_prefix,
                 src,
@@ -269,9 +268,11 @@ pub fn highlighter_fixture(
             line_highlights.clear();
             line_idx += 1;
             line_start = line_end;
-            line_end = src
-                .try_line_to_byte(line_idx + 1)
-                .unwrap_or(src.len_bytes()) as u32;
+            line_end = if src.len_lines(ropey::LineType::LF_CR) > line_idx {
+                src.line_to_byte_idx(line_idx + 1, ropey::LineType::LF_CR) as u32
+            } else {
+                src.len() as u32
+            };
             line_highlights.is_empty();
             if pos > line_start && !highlight_stack.is_empty() {
                 line_highlights.push((line_start..pos.min(line_end), Vec::new()))
@@ -280,10 +281,7 @@ pub fn highlighter_fixture(
     }
     if !line_highlights.is_empty() {
         res.push_str(&ident);
-        res.extend(
-            src.byte_slice(line_start as usize..line_end as usize)
-                .chunks(),
-        );
+        res.extend(src.slice(line_start as usize..line_end as usize).chunks());
         if !res.ends_with('\n') {
             res.push('\n');
         }
@@ -297,8 +295,11 @@ pub fn highlighter_fixture(
         );
         line_start = line_end;
     }
-    for line in src.byte_slice(line_start as usize..).lines() {
-        if line.len_bytes() != 0 {
+    for line in src
+        .slice(line_start as usize..)
+        .lines(ropey::LineType::LF_CR)
+    {
+        if line.len() != 0 {
             wln!(res, "{ident}{line}")
         }
     }
@@ -321,7 +322,7 @@ pub fn injections_fixture(
     let end = match range.end_bound() {
         Bound::Included(&i) => i - 1,
         Bound::Excluded(&i) => i,
-        Bound::Unbounded => src.len_bytes(),
+        Bound::Unbounded => src.len(),
     };
     let ident = " ".repeat(comment_prefix.width());
     let lang = syntax.layer(syntax.root).language;
@@ -337,13 +338,16 @@ pub fn injections_fixture(
     } else {
         end as u32
     };
-    let mut line_idx = src.byte_to_line(pos as usize);
-    let mut line_start = src.line_to_byte(line_idx) as u32;
-    let mut line_end = src.line_to_byte(line_idx + 1) as u32;
+    let mut line_idx = src.byte_to_line_idx(pos as usize, ropey::LineType::LF_CR);
+    let mut line_start = src.line_to_byte_idx(line_idx, ropey::LineType::LF_CR) as u32;
+    let mut line_end = src.line_to_byte_idx(line_idx + 1, ropey::LineType::LF_CR) as u32;
     let mut line_labels = Vec::new();
     let mut res = String::new();
-    for line in src.byte_slice(..line_start as usize).lines() {
-        if line.len_bytes() != 0 {
+    for line in src
+        .slice(..line_start as usize)
+        .lines(ropey::LineType::LF_CR)
+    {
+        if line.len() != 0 {
             wln!(res, "{ident}{line}")
         }
     }
@@ -355,13 +359,13 @@ pub fn injections_fixture(
         let mut start = pos;
         pos = event.start_byte();
         if pos == u32::MAX {
-            pos = src.len_bytes() as u32
+            pos = src.len() as u32
         }
         if pos <= start {
             wln!(
                 errors,
                 "INVALID RANGE: {start}..{pos} {:?} {:?}",
-                src.byte_slice(pos as usize..start as usize),
+                src.slice(pos as usize..start as usize),
                 injection_stack
             );
             start = pos;
@@ -376,10 +380,7 @@ pub fn injections_fixture(
         if start != pos {
             while pos >= line_end {
                 res.push_str(&ident);
-                res.extend(
-                    src.byte_slice(line_start as usize..line_end as usize)
-                        .chunks(),
-                );
+                res.extend(src.slice(line_start as usize..line_end as usize).chunks());
                 annotate_line(
                     comment_prefix,
                     src,
@@ -391,9 +392,11 @@ pub fn injections_fixture(
                 line_labels.clear();
                 line_idx += 1;
                 line_start = line_end;
-                line_end = src
-                    .try_line_to_byte(line_idx + 1)
-                    .unwrap_or(src.len_bytes()) as u32;
+                line_end = if src.len_lines(ropey::LineType::LF_CR) > line_idx {
+                    src.line_to_byte_idx(line_idx + 1, ropey::LineType::LF_CR) as u32
+                } else {
+                    src.len() as u32
+                };
                 if line_start == line_end {
                     break;
                 }
@@ -415,10 +418,7 @@ pub fn injections_fixture(
     }
     if !line_labels.is_empty() {
         res.push_str(&ident);
-        res.extend(
-            src.byte_slice(line_start as usize..line_end as usize)
-                .chunks(),
-        );
+        res.extend(src.slice(line_start as usize..line_end as usize).chunks());
         if !res.ends_with('\n') {
             res.push('\n');
         }
@@ -432,8 +432,11 @@ pub fn injections_fixture(
         );
         line_start = line_end;
     }
-    for line in src.byte_slice(line_start as usize..).lines() {
-        if line.len_bytes() != 0 {
+    for line in src
+        .slice(line_start as usize..)
+        .lines(ropey::LineType::LF_CR)
+    {
+        if line.len() != 0 {
             wln!(res, "{ident}{line}")
         }
     }
@@ -464,12 +467,12 @@ fn annotate_line(
     let mut offsets = Vec::with_capacity(annotations.len());
     for (i, (range, labels)) in annotations.iter().enumerate() {
         let offset = src
-            .byte_slice(prev_pos as usize..range.start as usize)
+            .slice(prev_pos as usize..range.start as usize)
             .chars()
             .map(|c| c.width().unwrap_or(0))
             .sum();
         let mut width: usize = src
-            .byte_slice(range.start as usize..range.end as usize)
+            .slice(range.start as usize..range.end as usize)
             .chars()
             .map(|c| c.width().unwrap_or(0))
             .sum();

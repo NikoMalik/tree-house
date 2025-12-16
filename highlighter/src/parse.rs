@@ -1,6 +1,4 @@
-use hashbrown::HashMap;
 use smallvec::SmallVec;
-use std::cell::RefCell;
 use std::mem::take;
 use std::time::Duration;
 
@@ -8,7 +6,7 @@ use ropey::RopeSlice;
 use tree_sitter::{Parser, Point, Range as TreeSitterRange};
 
 use crate::config::LanguageLoader;
-use crate::{Error, Language, Layer, LayerData, Syntax};
+use crate::{Error, Layer, LayerData, Syntax};
 
 impl Syntax {
     pub fn update(
@@ -21,7 +19,7 @@ impl Syntax {
         // size limit of 512MiB, TS just cannot handle files this big (too
         // slow). Furthermore, TS uses 32 (signed) bit indices so this limit
         // must never be raised above 2GiB
-        if source.len_bytes() >= 512 * 1024 * 1024 {
+        if source.len() >= 512 * 1024 * 1024 {
             return Err(Error::ExceededMaximumSize);
         }
         // let mut queue = Vec::with_capacity(32);

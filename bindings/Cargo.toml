@@ -12,11 +12,14 @@ rust-version = "1.76.0"
 [features]
 ropey = ["dep:ropey"]
 tree-sitter-language = ["dep:tree-sitter-language"]
+ropey2 = ["dep:ropey2", "regex-cursor/ropey2"]
 
 [dependencies]
 smallvec = "1.15.1"
-ropey = { version = "1.6", default-features = false, optional=true }
-regex-cursor = "0.1.5"
+ropey = { version = "1.6", default-features = false, features=["simd"], optional=true }
+ropey2 = { package = "ropey", version = "2.0.0-alpha.3", features = ["metric_lines_lf_cr", "simd"], optional = true }
+regex-cursor = { git="https://github.com/cessen/regex-cursor.git" , branch="ropey2" }
+# regex-cursor = "0.1.5"
 libloading = "0.8"
 thiserror = "2.0"
 tree-sitter-language = { version = "0.1.5", optional = true }

@@ -18,6 +18,8 @@ fn main() {
 
     config
         .flag_if_supported("-std=c11")
+        .flag("-flto")
+        .flag("-O3")
         .flag_if_supported("-fvisibility=hidden")
         .flag_if_supported("-Wshadow")
         .flag_if_supported("-Wno-unused-parameter")
