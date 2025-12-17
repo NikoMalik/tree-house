@@ -429,7 +429,7 @@ impl<'a, T: LanguageLoader> QueryLoader<'a> for HighlightQueryLoader<&'a T> {
                 // let text: Cow<str> = source
                 //     .byte_slice(range.start as usize..range.end as usize)
                 //     .into();
-                let slice = source.slice(range.start as usize..range.end as usize);
+                let slice = source.byte_slice(range.start as usize..range.end as usize);
                 if let Some(s) = slice.as_str() {
                     locals_cursor
                         .locals

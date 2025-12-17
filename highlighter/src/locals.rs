@@ -51,7 +51,7 @@ impl Locals {
         self.scopes.push(scope);
         new_scope_id
     }
-    #[inline(always)]
+    #[inline]
     pub fn lookup_reference(&self, mut scope: Scope, name: &str) -> Option<&Definition> {
         loop {
             let scope_data = &self[scope];
@@ -217,7 +217,7 @@ impl Syntax {
                 });
             } else if definition_captures.contains_key(&capture) {
                 let text = match source
-                    .slice(range.start as usize..range.end as usize)
+                    .byte_slice(range.start as usize..range.end as usize)
                     .into()
                 {
                     Cow::Borrowed(inner) => KString::from_ref(inner),

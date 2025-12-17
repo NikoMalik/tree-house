@@ -12,7 +12,7 @@ use crate::{
     Injection, Language, Layer, Range, Syntax, TREE_SITTER_MATCH_LIMIT,
 };
 use tree_sitter::{
-    Capture, InactiveQueryCursor, Node, Pattern, Query, QueryCursor, QueryMatch, Ropey2Input,
+    Capture, InactiveQueryCursor, Node, Pattern, Query, QueryCursor, QueryMatch, RopeInput,
 };
 
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ pub struct MatchedNode<'tree> {
 }
 
 struct LayerQueryIter<'a, 'tree> {
-    cursor: Option<QueryCursor<'a, 'tree, Ropey2Input<'a>>>,
+    cursor: Option<QueryCursor<'a, 'tree, RopeInput<'a>>>,
     peeked: Option<MatchedNode<'tree>>,
     language: Language,
     scope_cursor: ScopeCursor<'tree>,
@@ -122,7 +122,7 @@ where
                         .and_then(|query| Some((query, layer.tree()?.root_node())))
                         .map(|(query, node)| {
                             InactiveQueryCursor::new(self.range.clone(), TREE_SITTER_MATCH_LIMIT)
-                                .execute_query(query, &node, Ropey2Input::new(self.src))
+                                .execute_query(query, &node, RopeInput::new(self.src))
                         })
                 };
                 Box::new(ActiveLayer {
@@ -164,7 +164,7 @@ where
         let end = match range.end_bound() {
             std::ops::Bound::Included(&i) => i + 1,
             std::ops::Bound::Excluded(&i) => i,
-            std::ops::Bound::Unbounded => src.len() as u32,
+            std::ops::Bound::Unbounded => src.len_bytes() as u32,
         };
         let range = start..end;
         let node = syntax.tree().root_node();
